@@ -60,6 +60,7 @@ void Z3CHCInterface::registerRelation(Expression const& _expr)
 void Z3CHCInterface::addRule(Expression const& _expr, string const& _name)
 {
 	z3::expr rule = m_z3Interface->toZ3Expr(_expr);
+	cout << rule << "\n\n";
 	if (m_z3Interface->constants().empty())
 		m_solver.add_rule(rule, m_context->str_symbol(_name.c_str()));
 	else
@@ -83,18 +84,21 @@ pair<CheckResult, vector<string>> Z3CHCInterface::query(Expression const& _expr)
 		{
 		case z3::check_result::sat:
 		{
+			cout << "SAT\n" << m_solver.get_answer() << endl;
 			result = CheckResult::SATISFIABLE;
 			// TODO retrieve model.
 			break;
 		}
 		case z3::check_result::unsat:
 		{
+			cout << "UNSAT\n" << m_solver.get_answer() << endl;
 			result = CheckResult::UNSATISFIABLE;
 			// TODO retrieve invariants.
 			break;
 		}
 		case z3::check_result::unknown:
 		{
+			cout << "UNKNOWN\n" << m_solver.reason_unknown() << endl;
 			result = CheckResult::UNKNOWN;
 			break;
 		}
