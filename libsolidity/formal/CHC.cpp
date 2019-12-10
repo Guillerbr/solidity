@@ -85,8 +85,7 @@ void CHC::analyze(SourceUnit const& _source)
 		boolSort
 	);
 	m_genesisPredicate = createSymbolicBlock(genesisSort, "genesis");
-	auto genesis = (*m_genesisPredicate)({});
-	addRule(genesis, genesis.name);
+	addRule(genesis(), "genesis");
 
 	_source.accept(*this);
 }
@@ -111,11 +110,7 @@ bool CHC::visit(ContractDefinition const& _contract)
 	m_stateVariables = _contract.stateVariablesIncludingInherited();
 
 	for (auto const& var: m_stateVariables)
-		// SMT solvers do not support function types as arguments.
-		if (var->type()->category() == Type::Category::Function)
-			m_stateSorts.push_back(make_shared<smt::Sort>(smt::Kind::Int));
-		else
-			m_stateSorts.push_back(smt::smtSort(*var->type()));
+		m_stateSorts.push_back(smt::smtSortAbstractFunction(*var->type()));
 
 	for (auto const& base: _contract.annotation().linearizedBaseContracts)
 		for (auto const& function: base->definedFunctions())
@@ -152,9 +147,8 @@ void CHC::endVisit(ContractDefinition const& _contract)
 		solAssert(m_context.knownVariable(*var), "");
 		m_context.setZeroValue(*var);
 	}
-	auto genesisPred = (*m_genesisPredicate)({});
 	auto implicitConstructor = (*m_constructorPredicate)(currentStateVariables());
-	connectBlocks(genesisPred, implicitConstructor);
+	connectBlocks(genesis(), implicitConstructor);
 	m_currentBlock = implicitConstructor;
 
 	if (auto constructor = _contract.constructor())
@@ -190,7 +184,7 @@ bool CHC::visit(FunctionDefinition const& _function)
 		return false;
 	}
 
-	solAssert(!m_currentFunction, "Inlining internal function calls not yet implemented");
+	solAssert(!m_currentFunction, "Function inlining should not happen in CHC.");
 	m_currentFunction = &_function;
 
 	initFunction(_function);
@@ -201,7 +195,8 @@ bool CHC::visit(FunctionDefinition const& _function)
 	auto functionPred = predicate(*functionEntryBlock, currentFunctionVariables());
 	auto bodyPred = predicate(*bodyBlock);
 
-	connectBlocks(m_currentBlock, functionPred);
+	//connectBlocks(genesis(), functionPred);
+	addRule(functionPred, functionPred.name);
 	connectBlocks(functionPred, bodyPred);
 
 	setCurrentBlock(*bodyBlock);
@@ -241,10 +236,16 @@ void CHC::endVisit(FunctionDefinition const& _function)
 		}
 		else
 		{
-			connectBlocks(m_currentBlock, interface());
-			clearIndices(m_currentContract, m_currentFunction);
-			auto stateExprs = currentStateVariables();
+			connectBlocks(m_currentBlock, summary(_function));
+
+			auto stateExprs = initialStateVariables();
 			setCurrentBlock(*m_interfacePredicate, &stateExprs);
+
+			for (auto const* var: m_stateVariables)
+				m_context.variable(*var)->increaseIndex();
+			auto sum = summary(_function);
+			connectBlocks(m_currentBlock, sum);
+			connectBlocks(sum, interface());
 		}
 		m_currentFunction = nullptr;
 	}
@@ -481,7 +482,8 @@ void CHC::visitAssert(FunctionCall const& _funCall)
 	createErrorBlock();
 
 	smt::Expression assertNeg = !(m_context.expression(*args.front())->currentValue());
-	connectBlocks(m_currentBlock, error(), currentPathConditions() && assertNeg);
+	//connectBlocks(m_currentBlock, error(), currentPathConditions() && assertNeg);
+	connectBlocks(m_currentBlock, error(), currentPathConditions() && assertNeg && (*m_interfacePredicate)(initialStateVariables()));
 
 	m_verificationTargets.push_back(&_funCall);
 }
@@ -533,12 +535,7 @@ bool CHC::shouldVisit(ContractDefinition const& _contract) const
 
 bool CHC::shouldVisit(FunctionDefinition const& _function) const
 {
-	if (
-		_function.isPublic() &&
-		_function.isImplemented()
-	)
-		return true;
-	return false;
+	return _function.isImplemented();
 }
 
 void CHC::setCurrentBlock(
@@ -571,17 +568,22 @@ smt::SortPointer CHC::interfaceSort()
 	);
 }
 
+/// A function in the symbolic CFG requires two sets of state and input variables.
+/// One set of state variables and one set of input variables are immutable.
+/// Those are simply always passed onto the next blocks unchanged, such that
+/// the initial state of the transaction is always known.
+/// This will be used when reverts are taken into account.
 smt::SortPointer CHC::sort(FunctionDefinition const& _function)
 {
 	auto boolSort = make_shared<smt::Sort>(smt::Kind::Bool);
 	vector<smt::SortPointer> inputSorts;
 	for (auto const& var: _function.parameters())
-		inputSorts.push_back(smt::smtSort(*var->type()));
+		inputSorts.push_back(smt::smtSortAbstractFunction(*var->type()));
 	vector<smt::SortPointer> outputSorts;
 	for (auto const& var: _function.returnParameters())
-		outputSorts.push_back(smt::smtSort(*var->type()));
+		outputSorts.push_back(smt::smtSortAbstractFunction(*var->type()));
 	return make_shared<smt::FunctionSort>(
-		m_stateSorts + inputSorts + outputSorts,
+		m_stateSorts + inputSorts + m_stateSorts + inputSorts + outputSorts,
 		boolSort
 	);
 }
@@ -597,13 +599,7 @@ smt::SortPointer CHC::sort(ASTNode const* _node)
 	auto boolSort = make_shared<smt::Sort>(smt::Kind::Bool);
 	vector<smt::SortPointer> varSorts;
 	for (auto const& var: m_currentFunction->localVariables())
-	{
-		// SMT solvers do not support function types as arguments.
-		if (var->type()->category() == Type::Category::Function)
-			varSorts.push_back(make_shared<smt::Sort>(smt::Kind::Int));
-		else
-			varSorts.push_back(smt::smtSort(*var->type()));
-	}
+		varSorts.push_back(smt::smtSortAbstractFunction(*var->type()));
 	return make_shared<smt::FunctionSort>(
 		fSort->domain + varSorts,
 		boolSort
@@ -612,12 +608,14 @@ smt::SortPointer CHC::sort(ASTNode const* _node)
 
 smt::SortPointer CHC::summarySort(FunctionDefinition const& _function)
 {
-	auto fSort = dynamic_pointer_cast<smt::FunctionSort>(sort(_function));
-	solAssert(fSort, "");
-
 	auto boolSort = make_shared<smt::Sort>(smt::Kind::Bool);
+	vector<smt::SortPointer> inputSorts, outputSorts;
+	for (auto const& var: _function.parameters())
+		inputSorts.push_back(smt::smtSortAbstractFunction(*var->type()));
+	for (auto const& var: _function.returnParameters())
+		outputSorts.push_back(smt::smtSortAbstractFunction(*var->type()));
 	return make_shared<smt::FunctionSort>(
-		fSort->domain + m_stateSorts,
+		m_stateSorts + inputSorts + m_stateSorts + outputSorts,
 		boolSort
 	);
 }
@@ -651,18 +649,15 @@ smt::Expression CHC::error(unsigned _idx)
 	return m_errorPredicate->functionValueAtIndex(_idx)({});
 }
 
-smt::Expression CHC::summary(FunctionDefinition const* _function)
+smt::Expression CHC::summary(FunctionDefinition const& _function)
 {
-	vector<smt::Expression> args;
-	for (auto const& var: m_stateVariables)
+	vector<smt::Expression> args = initialStateVariables();
+	for (auto const& var: _function.parameters())
 		args.push_back(m_context.variable(*var)->valueAtIndex(0));
-	for (auto const& var: _function->parameters())
-		args.push_back(m_context.variable(*var)->valueAtIndex(0));
-	for (auto const& var: _function->returnParameters())
+	args += currentStateVariables();
+	for (auto const& var: _function.returnParameters())
 		args.push_back(m_context.variable(*var)->currentValue());
-	for (auto const& var: m_stateVariables)
-		args.push_back(m_context.variable(*var)->currentValue());
-	return (*m_summaries.at(_function))(args);
+	return (*m_summaries.at(&_function))(args);
 }
 
 unique_ptr<smt::SymbolicFunctionVariable> CHC::createBlock(ASTNode const* _node, string const& _prefix)
@@ -678,7 +673,7 @@ unique_ptr<smt::SymbolicFunctionVariable> CHC::createBlock(ASTNode const* _node,
 unique_ptr<smt::SymbolicFunctionVariable> CHC::createSummaryBlock(FunctionDefinition const* _node)
 {
 	return createSymbolicBlock(summarySort(*_node),
-		"call_" +
+		"summary_" +
 		uniquePrefix() +
 		"_" +
 		predicateName(_node));
@@ -700,6 +695,15 @@ void CHC::connectBlocks(smt::Expression const& _from, smt::Expression const& _to
 	addRule(edge, _from.name + "_to_" + _to.name);
 }
 
+vector<smt::Expression> CHC::initialStateVariables()
+{
+	solAssert(m_currentContract, "");
+	vector<smt::Expression> exprs;
+	for (auto const& var: m_stateVariables)
+		exprs.push_back(m_context.variable(*var)->valueAtIndex(0));
+	return exprs;
+}
+
 vector<smt::Expression> CHC::currentStateVariables()
 {
 	solAssert(m_currentContract, "");
@@ -711,11 +715,17 @@ vector<smt::Expression> CHC::currentStateVariables()
 
 vector<smt::Expression> CHC::currentFunctionVariables()
 {
-	vector<smt::Expression> paramExprs;
-	if (m_currentFunction)
-		for (auto const& var: m_currentFunction->parameters() + m_currentFunction->returnParameters())
-			paramExprs.push_back(m_context.variable(*var)->currentValue());
-	return currentStateVariables() + paramExprs;
+	vector<smt::Expression> initInputExprs;
+	vector<smt::Expression> mutableInputExprs;
+	for (auto const& var: m_currentFunction->parameters())
+	{
+		initInputExprs.push_back(m_context.variable(*var)->valueAtIndex(0));
+		mutableInputExprs.push_back(m_context.variable(*var)->currentValue());
+	}
+	vector<smt::Expression> returnExprs;
+	for (auto const& var: m_currentFunction->returnParameters())
+		returnExprs.push_back(m_context.variable(*var)->currentValue());
+	return initialStateVariables() + initInputExprs + currentStateVariables() + mutableInputExprs + returnExprs;
 }
 
 vector<smt::Expression> CHC::currentBlockVariables()
@@ -757,14 +767,23 @@ smt::Expression CHC::predicate(
 
 smt::Expression CHC::predicate(FunctionCall const& _funCall)
 {
-	auto const& function = functionCallToDefinition(_funCall);
-	solAssert(function, "");
+	auto const* function = functionCallToDefinition(_funCall);
+	if (!function)
+		return smt::Expression(true);
+
 	vector<smt::Expression> args = currentStateVariables();
 	for (auto const& arg: _funCall.arguments())
 		args.push_back(expr(*arg));
 	for (auto const& var: m_stateVariables)
 		m_context.variable(*var)->increaseIndex();
-	return (*m_summaries.at(function))(args + currentStateVariables());
+	args += currentStateVariables();
+
+	auto const& returnParams = function->returnParameters();
+	for (auto param: returnParams)
+		createVariable(*param);
+	for (auto const& var: function->returnParameters())
+		args.push_back(m_context.variable(*var)->currentValue());
+	return (*m_summaries.at(function))(args);
 }
 
 void CHC::addRule(smt::Expression const& _rule, string const& _ruleName)
