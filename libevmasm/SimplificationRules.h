@@ -38,9 +38,7 @@ namespace langutil
 struct SourceLocation;
 }
 
-namespace dev
-{
-namespace eth
+namespace solidity::evmasm
 {
 
 class Pattern;
@@ -158,5 +156,4 @@ struct ExpressionTemplate
 	std::vector<ExpressionTemplate> arguments;
 };
 
-}
 }

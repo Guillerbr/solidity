@@ -36,9 +36,7 @@ namespace langutil
 struct SourceLocation;
 }
 
-namespace dev
-{
-namespace eth
+namespace solidity::evmasm
 {
 
 class Pattern;
@@ -127,5 +125,4 @@ private:
 	std::vector<std::shared_ptr<AssemblyItem>> m_spareAssemblyItems;
 };
 
-}
 }

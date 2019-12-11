@@ -33,7 +33,7 @@
 
 namespace langutil
 {
-struct SourceLocationError: virtual dev::Exception {};
+struct SourceLocationError: virtual solidity::util::Exception {};
 
 /**
  * Representation of an interval of source positions.

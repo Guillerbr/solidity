@@ -33,8 +33,8 @@
 #include <json/json.h>
 
 using namespace std;
-using namespace dev;
-using namespace dev::eth;
+using namespace solidity;
+using namespace solidity::evmasm;
 using namespace langutil;
 
 void Assembly::append(Assembly const& _a)

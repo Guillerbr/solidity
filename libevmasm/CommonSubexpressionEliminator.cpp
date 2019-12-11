@@ -28,8 +28,8 @@
 #include <libevmasm/AssemblyItem.h>
 
 using namespace std;
-using namespace dev;
-using namespace dev::eth;
+using namespace solidity;
+using namespace solidity::evmasm;
 using namespace langutil;
 
 vector<AssemblyItem> CommonSubexpressionEliminator::getOptimizedItems()

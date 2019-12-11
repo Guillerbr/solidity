@@ -35,9 +35,7 @@
 #include <sstream>
 #include <memory>
 
-namespace dev
-{
-namespace eth
+namespace solidity::evmasm
 {
 
 using AssemblyPointer = std::shared_ptr<Assembly>;
@@ -191,5 +189,4 @@ inline std::ostream& operator<<(std::ostream& _out, Assembly const& _a)
 	return _out;
 }
 
-}
 }

@@ -24,9 +24,7 @@
 #include <libdevcore/Common.h>
 #include <libdevcore/FixedHash.h>
 
-namespace dev
-{
-namespace eth
+namespace solidity::evmasm
 {
 
 /**
@@ -64,5 +62,4 @@ private:
 	);
 };
 
-}
 }

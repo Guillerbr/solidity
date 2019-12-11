@@ -28,8 +28,8 @@
 #include <functional>
 
 using namespace std;
-using namespace dev;
-using namespace dev::eth;
+using namespace solidity;
+using namespace solidity::evmasm;
 using namespace langutil;
 
 ostream& KnownState::stream(ostream& _out) const

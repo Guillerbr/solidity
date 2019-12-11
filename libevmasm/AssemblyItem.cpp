@@ -23,8 +23,8 @@
 #include <fstream>
 
 using namespace std;
-using namespace dev;
-using namespace dev::eth;
+using namespace solidity;
+using namespace solidity::evmasm;
 
 static_assert(sizeof(size_t) <= 8, "size_t must be at most 64-bits wide");
 
@@ -67,7 +67,7 @@ unsigned AssemblyItem::bytesRequired(unsigned _addressLength) const
 	case PushString:
 		return 1 + 32;
 	case Push:
-		return 1 + max<unsigned>(1, dev::bytesRequired(data()));
+		return 1 + max<unsigned>(1, util::bytesRequired(data()));
 	case PushSubSize:
 	case PushProgramSize:
 		return 1 + 4;		// worst case: a 16MB program

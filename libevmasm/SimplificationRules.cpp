@@ -36,8 +36,8 @@
 #include <functional>
 
 using namespace std;
-using namespace dev;
-using namespace dev::eth;
+using namespace solidity;
+using namespace solidity::evmasm;
 using namespace langutil;
 
 SimplificationRule<Pattern> const* Rules::findFirstMatch(

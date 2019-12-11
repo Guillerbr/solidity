@@ -23,8 +23,8 @@
 #include <libevmasm/Assembly.h>
 #include <libevmasm/GasMeter.h>
 using namespace std;
-using namespace dev;
-using namespace dev::eth;
+using namespace solidity;
+using namespace solidity::evmasm;
 
 unsigned ConstantOptimisationMethod::optimiseConstants(
 	bool _isCreation,

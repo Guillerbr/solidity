@@ -25,8 +25,8 @@
 #include <libevmasm/SemanticInformation.h>
 
 using namespace std;
-using namespace dev::eth;
-using namespace dev;
+using namespace solidity;
+using namespace solidity::evmasm;
 
 // TODO: Extend this to use the tools from ExpressionClasses.cpp
 
