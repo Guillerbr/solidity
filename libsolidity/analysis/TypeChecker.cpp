@@ -326,6 +326,19 @@ bool TypeChecker::visit(StructDefinition const& _struct)
 
 bool TypeChecker::visit(FunctionDefinition const& _function)
 {
+	struct SetScopeFunc
+	{
+		SetScopeFunc(TypeChecker& _checker, FunctionDefinition const* _func)
+			:m_checker( _checker)
+		{
+			solAssert(m_checker.m_scopeFunction == nullptr, "Function Definition inside Function Definition!");
+			m_checker.m_scopeFunction = _func;
+		}
+		~SetScopeFunc() { m_checker.m_scopeFunction = nullptr; }
+		TypeChecker& m_checker;
+	} setScopeFunc(*this, &_function);
+
+
 	bool isLibraryFunction = _function.inContractKind() == ContractDefinition::ContractKind::Library;
 
 	if (_function.markedVirtual())
@@ -2078,6 +2091,28 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 					" Use abi.encodePacked(...) to obtain the pre-0.5.0"
 					" behaviour or abi.encode(...) to use ABI encoding.";
 			m_errorReporter.typeError(paramArgMap[i]->location(), msg);
+		}
+	}
+
+	if (_functionType->hasDeclaration())
+	{
+		if (auto const* memAcc = dynamic_cast<MemberAccess const*>(&_functionCall.expression()))
+			if (auto const* ident = dynamic_cast<Identifier const*>(&memAcc->expression()))
+				if (ident->name() == "super")
+					return;
+
+		if (auto const* funcDef = dynamic_cast<FunctionDefinition const*>(&_functionType->declaration()))
+		{
+			if (
+				!funcDef->isImplemented() &&
+				contains(m_scope->annotation().linearizedBaseContracts, funcDef->annotation().contract) &&
+				m_scopeFunction->name() == funcDef->name() &&
+				m_scopeFunction->parameters()  == funcDef->parameters()
+			)
+				m_errorReporter.typeError(
+					_functionCall.location(),
+					"Call to unimplemented function \"" + funcDef->name() + "\"."
+				);
 		}
 	}
 }
