@@ -809,14 +809,10 @@ pair<string, string> AssignCheckVisitor::visit(ArrayType const& _type)
 	{
 		length = getDynArrayLengthFromFuzz(_type.length(), counter());
 		lengthStr = to_string(length);
+		// We don't need to resize dynamic storage arrays but we need
+		// to check if length matches
 		if (m_stateVar)
-			resizeBuffer = assignAndCheckStringPair(
-				m_varName + ".length",
-				m_paramName + ".length",
-				lengthStr,
-				lengthStr,
-				DataType::VALUE
-				);
+			resizeBuffer.second = checkString(m_paramName + ".length", lengthStr, DataType::VALUE);
 		else
 		{
 			// Resizing memory arrays via the new operator
